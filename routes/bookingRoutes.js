@@ -1,9 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const Booking = require('../models/Booking');
+const mongoose = require('mongoose');
 
 // --- GET ALL BOOKINGS ---
-router.get('/bookings', async (req, res) => {
+router.get('/', async (req, res) => {
     try {
         const bookings = await Booking.find();
         const formatted = bookings.map(b => ({
@@ -25,7 +26,7 @@ router.get('/bookings', async (req, res) => {
 });
 
 // --- POST: CREATE BOOKING WITH CONFLICT PREVENTION ---
-router.post('/bookings', async (req, res) => {
+router.post('/', async (req, res) => {
     try {
         const { room_name, booking_date, period, until_date, booking_type } = req.body;
         const targetDate = booking_date ? booking_date.split('T')[0] : '';
@@ -41,12 +42,10 @@ router.post('/bookings', async (req, res) => {
                 room_name: room_name,
                 period: period,
                 $or: [
-                    // Exact match for one-time bookings on this date (case-insensitive regex on type)
                     { 
                         booking_date: { $regex: targetDate }, 
                         booking_type: { $regex: /^one-time/i } 
                     },
-                    // Falls inside an active recurring booking window
                     {
                         booking_type: { $regex: /^recurring/i },
                         booking_date: { $lte: targetDate },
@@ -95,13 +94,25 @@ router.post('/bookings', async (req, res) => {
     }
 });
 
-// --- DELETE BOOKING ---
-router.delete('/bookings/:id', async (req, res) => {
+// --- DELETE BOOKING (With Safe ObjectId Check) ---
+router.delete('/:id', async (req, res) => {
     try {
-        await Booking.findByIdAndDelete(req.params.id);
-        res.status(200).json({ message: 'Booking deleted successfully' });
+        const bookingId = req.params.id;
+        
+        if (!mongoose.Types.ObjectId.isValid(bookingId)) {
+            return res.status(400).json({ error: 'Invalid booking ID format' });
+        }
+
+        const deletedBooking = await Booking.findByIdAndDelete(bookingId);
+
+        if (!deletedBooking) {
+            return res.status(404).json({ error: 'Booking not found' });
+        }
+
+        res.status(200).json({ message: 'Booking deleted successfully', deletedBooking });
     } catch (error) {
-        res.status(500).json({ error: 'Server error while deleting booking.' });
+        console.error('Delete Booking Error:', error);
+        res.status(500).json({ error: 'Server error while deleting booking' });
     }
 });
 
