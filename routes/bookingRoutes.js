@@ -29,20 +29,26 @@ router.post('/bookings', async (req, res) => {
     try {
         const { room_name, booking_date, period, until_date, booking_type } = req.body;
         const targetDate = booking_date ? booking_date.split('T')[0] : '';
+        const typeStr = booking_type ? booking_type.toLowerCase() : 'one-time';
 
         if (!room_name || !targetDate || !period) {
             return res.status(400).json({ error: 'Missing required booking fields.' });
         }
 
         // 1. Check for One-Time Booking Conflicts
-        if (!booking_type || booking_type.toLowerCase() === 'one-time' || !until_date) {
+        if (typeStr === 'one-time' || !until_date || until_date === 'Ending of session') {
             const existingConflict = await Booking.findOne({
                 room_name: room_name,
                 period: period,
                 $or: [
-                    { booking_date: { $regex: targetDate }, booking_type: { $ne: 'recurring' } },
+                    // Exact match for one-time bookings on this date (case-insensitive regex on type)
+                    { 
+                        booking_date: { $regex: targetDate }, 
+                        booking_type: { $regex: /^one-time/i } 
+                    },
+                    // Falls inside an active recurring booking window
                     {
-                        booking_type: 'recurring',
+                        booking_type: { $regex: /^recurring/i },
                         booking_date: { $lte: targetDate },
                         until_date: { $gte: targetDate }
                     }
@@ -63,11 +69,11 @@ router.post('/bookings', async (req, res) => {
                 period: period,
                 $or: [
                     {
-                        booking_type: { $ne: 'recurring' },
+                        booking_type: { $regex: /^one-time/i },
                         booking_date: { $gte: startDate, $lte: endDate }
                     },
                     {
-                        booking_type: 'recurring',
+                        booking_type: { $regex: /^recurring/i },
                         booking_date: { $lte: endDate },
                         until_date: { $gte: startDate }
                     }
